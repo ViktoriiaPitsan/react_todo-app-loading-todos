@@ -1,81 +1,50 @@
+/* eslint-disable jsx-a11y/label-has-associated-control */
+/* eslint-disable jsx-a11y/control-has-associated-label */
 import React, { useState, useEffect } from 'react';
 import { UserWarning } from './UserWarning';
-import { getTodos, USER_ID } from './api/todos';
-import { Todo } from './types/Todo';
-import { ErrorNotification } from './components/ErrorNotification';
+import {
+  todosService,
+  TodosServiceErrors,
+  todosServiceErrorText,
+  USER_ID,
+} from './api/todos';
+import cn from 'classnames';
 import { TodoItem } from './components/TodoItem';
-import { NewTodoForm } from './components/NewTodoForm';
-import { Footer } from './components/Footer';
-import { Filter } from './types/Filter';
+import { TODO_STATUS_FILTER_OPTIONS, Status } from './types/TodoStatusFilter';
+import { getFilteredTodos, Todo } from './types/Todo';
 
 export const App: React.FC = () => {
   const [todos, setTodos] = useState<Todo[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('all');
+  const [selectedStatus, setSelectedStatus] = useState(Status.ALL);
+
+  const handleRemoveError = () => setError('');
 
   useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => {
-        setError(null);
-      }, 3000);
-
-      return () => clearTimeout(timer);
-    }
-
-    return undefined;
-  }, [error]);
-
-  useEffect(() => {
-    if (!USER_ID) {
+    if (!error) {
       return;
     }
 
-    const loadTodos = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const todosData = await getTodos();
+    const timer = setTimeout(handleRemoveError, 3000);
 
-        setTodos(todosData);
-      } catch (err) {
-        setError('Unable to load todos');
-      } finally {
-        setIsLoading(false);
-      }
+    return () => {
+      clearTimeout(timer);
     };
+  }, [error]);
 
-    loadTodos();
+  useEffect(() => {
+    todosService
+      .getTodos()
+      .then(setTodos)
+      .catch(() => {
+        setError(
+          todosServiceErrorText[TodosServiceErrors.UNABLE_TO_LOAD_TODOS],
+        );
+      })
+      .finally(() => {});
   }, []);
 
-  const handleAddTodo = (title: string) => {
-    const newTodo: Todo = {
-      id: Date.now(),
-      userId: USER_ID,
-      title,
-      completed: false,
-    };
-
-    setTodos([...todos, newTodo]);
-  };
-
-  const filteredTodos = todos.filter(todo => {
-    if (filter === 'active') {
-      return !todo.completed;
-    }
-
-    if (filter === 'completed') {
-      return todo.completed;
-    }
-
-    return true;
-  });
-
-  const handleCloseError = () => {
-    setError(null);
-  };
-
-  const hasTodos = todos.length > 0;
+  const filteredTodos = getFilteredTodos(todos, selectedStatus);
 
   if (!USER_ID) {
     return <UserWarning />;
@@ -87,34 +56,92 @@ export const App: React.FC = () => {
 
       <div className="todoapp__content">
         <header className="todoapp__header">
-          {hasTodos && (
-            <button
-              type="button"
-              className="todoapp__toggle-all active"
-              data-cy="ToggleAllButton"
+          {/* this button should have `active` class only if all todos are completed */}
+          <button
+            type="button"
+            className="todoapp__toggle-all active"
+            data-cy="ToggleAllButton"
+          />
+
+          {/* Add a todo on form submit */}
+          <form>
+            <input
+              data-cy="NewTodoField"
+              type="text"
+              className="todoapp__new-todo"
+              placeholder="What needs to be done?"
             />
-          )}
-          <NewTodoForm onAddTodo={handleAddTodo} />
+          </form>
         </header>
 
-        <section className="todoapp__main" data-cy="TodoList">
-          {isLoading ? (
-            <div className="spinner">Loading...</div>
-          ) : (
-            filteredTodos.map(todo => <TodoItem key={todo.id} todo={todo} />)
-          )}
-        </section>
+        {filteredTodos.length !== 0 && (
+          <section className="todoapp__main" data-cy="TodoList">
+            {filteredTodos.map(todo => (
+              <TodoItem key={todo.id} todo={todo} />
+            ))}
+          </section>
+        )}
 
-        {hasTodos && (
-          <Footer
-            remainingItemsCount={todos.filter(todo => !todo.completed).length}
-            filter={filter}
-            onFilterChange={setFilter}
-          />
+        {todos.length !== 0 && (
+          <footer className="todoapp__footer" data-cy="Footer">
+            <span className="todo-count" data-cy="TodosCounter">
+              {todos.filter(todo => !todo.completed).length} items left
+            </span>
+
+            {/* Active link should have the 'selected' class */}
+            <nav className="filter" data-cy="Filter">
+              {Object.entries(TODO_STATUS_FILTER_OPTIONS).map(
+                ([option, { href, testId, text }]) => (
+                  <a
+                    key={testId}
+                    href={href}
+                    className={cn('filter__link', {
+                      selected: selectedStatus === option,
+                    })}
+                    data-cy={testId}
+                    onClick={event => {
+                      event.preventDefault();
+                      setSelectedStatus(option as Status);
+                    }}
+                  >
+                    {text}
+                  </a>
+                ),
+              )}
+            </nav>
+
+            {/* this button should be disabled if there are no completed todos */}
+            <button
+              type="button"
+              className="todoapp__clear-completed"
+              data-cy="ClearCompletedButton"
+            >
+              Clear completed
+            </button>
+          </footer>
         )}
       </div>
 
-      <ErrorNotification message={error} onClose={handleCloseError} />
+      {/* DON'T use conditional rendering to hide the notification */}
+      {/* Add the 'hidden' class to hide the message smoothly */}
+
+      <div
+        data-cy="ErrorNotification"
+        className={cn(
+          'notification is-danger is-light has-text-weight-normal',
+          {
+            hidden: !error,
+          },
+        )}
+      >
+        <button
+          data-cy="HideErrorButton"
+          type="button"
+          className="delete"
+          onClick={handleRemoveError}
+        />
+        {error}
+      </div>
     </div>
   );
 };
